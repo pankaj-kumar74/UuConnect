@@ -1,0 +1,19 @@
+# Node & build
+node_modules/
+dist/
+
+# OS & temp files
+.DS_Store
+
+# Build artifacts
+*.tar.gz
+
+# Vite config variants
+vite.config.ts.*
+
+# Local config not for GitHub
+.env
+.replit
+
+# Optional: server public files (if you want to ignore them)
+server/public
