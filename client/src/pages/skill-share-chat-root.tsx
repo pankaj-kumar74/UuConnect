@@ -51,12 +51,18 @@ export default function SkillShareChatRoot() {
     fetch("/api/connection-requests/accepted", {
       headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
     })
-      .then((res) => res.json())
-      .then((data) => {
-        setAcceptedConnections(data);
+      .then(async (res) => {
+        const data = await res.json();
+        if (!res.ok) {
+          console.error("Error fetching accepted connections:", data);
+          setAcceptedConnections([]);
+          return;
+        }
+        setAcceptedConnections(Array.isArray(data) ? data : []);
       })
       .catch((error) => {
-        console.error('Error fetching accepted connections:', error);
+        console.error("Error fetching accepted connections:", error);
+        setAcceptedConnections([]);
       });
   }, [user, refreshKey]);
 
@@ -72,9 +78,11 @@ export default function SkillShareChatRoot() {
     };
   }, []);
 
+  const safeAcceptedConnections = Array.isArray(acceptedConnections) ? acceptedConnections : [];
+
   // Fetch sidebar user info for all accepted connections
   useEffect(() => {
-    const idsToFetch = acceptedConnections
+    const idsToFetch = safeAcceptedConnections
       .map((conn: any) => (conn.senderId === user?.id ? conn.receiverId : conn.senderId))
       .filter((id: number, idx: number, arr: number[]) => arr.indexOf(id) === idx && !sidebarUserInfo[id]);
     if (idsToFetch.length === 0) return;
@@ -85,16 +93,15 @@ export default function SkillShareChatRoot() {
           setSidebarUserInfo((prev) => ({ ...prev, [id]: { fullName: data.username || data.fullName || "User", avatar: data.avatar } }));
         });
     });
-  }, [acceptedConnections, user]);
+  }, [safeAcceptedConnections, user, sidebarUserInfo]);
 
   // Auto-open chat when activeChatConnection is set
   useEffect(() => {
-    console.log('activeChatConnection changed:', activeChatConnection);
-    console.log('acceptedConnections:', acceptedConnections);
+    console.log('acceptedConnections:', safeAcceptedConnections);
     
     if (activeChatConnection) {
       // Find the connection in acceptedConnections
-      const conn = acceptedConnections.find((c: any) => c.id === activeChatConnection.id);
+      const conn = safeAcceptedConnections.find((c: any) => c.id === activeChatConnection.id);
       console.log('Found connection:', conn);
       
       if (conn) {
@@ -110,7 +117,7 @@ export default function SkillShareChatRoot() {
         console.log('Using activeChatConnection directly');
       }
     }
-  }, [activeChatConnection, acceptedConnections]);
+  }, [activeChatConnection, safeAcceptedConnections]);
 
   useEffect(() => {
     const checkMobile = () => {
@@ -149,7 +156,7 @@ export default function SkillShareChatRoot() {
 
           {/* Chat List */}
           <div className="flex-1 overflow-y-auto p-4">
-            {acceptedConnections.length === 0 ? (
+            {safeAcceptedConnections.length === 0 ? (
               <div className="text-center text-gray-500 py-8">
                 <MessageCircle className="h-12 w-12 mx-auto mb-4 opacity-50" />
                 <p className="text-lg font-semibold text-red-500">No chat connections yet</p>
@@ -158,7 +165,7 @@ export default function SkillShareChatRoot() {
               </div>
             ) : (
               <div className="space-y-2">
-                {acceptedConnections.map((connection: any) => {
+                {safeAcceptedConnections.map((connection: any) => {
                   const otherUserId = connection.senderId === user?.id ? connection.receiverId : connection.senderId;
                   const otherUser = sidebarUserInfo[otherUserId];
                   return (
@@ -223,7 +230,7 @@ export default function SkillShareChatRoot() {
 
         {/* Chat List */}
         <div className="flex-1 overflow-y-auto p-4">
-          {acceptedConnections.length === 0 ? (
+          {safeAcceptedConnections.length === 0 ? (
             <div className="text-center text-gray-500 py-8">
               <MessageCircle className="h-12 w-12 mx-auto mb-4 opacity-50" />
               <p className="text-lg font-semibold text-red-500">No chat connections yet</p>
@@ -232,7 +239,7 @@ export default function SkillShareChatRoot() {
             </div>
           ) : (
             <div className="space-y-2">
-              {acceptedConnections.map((connection: any) => {
+              {safeAcceptedConnections.map((connection: any) => {
                 const otherUserId = connection.senderId === user?.id ? connection.receiverId : connection.senderId;
                 const otherUser = sidebarUserInfo[otherUserId];
                 return (

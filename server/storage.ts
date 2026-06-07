@@ -171,7 +171,7 @@ export class MemStorage implements IStorage {
       id: this.currentUserId++,
       username: "admin",
       email: "admin@uu.ac.in",
-      password: "$2b$10$rKZZZZZZZZZZZZZZZZZZZu", // "admin123" hashed
+      password: "$2b$10$xCNRKGzKnP6h3qgJIfGlZOoHvBLIzwuBG3C7aWjMmNEU7dQstldgS", // "admin123" hashed
       fullName: "Administrator",
       role: "admin",
       bio: "System Administrator",
@@ -185,7 +185,7 @@ export class MemStorage implements IStorage {
       id: this.currentUserId++,
       username: "student",
       email: "student@uu.ac.in",
-      password: "$2b$10$rKZZZZZZZZZZZZZZZZZZZu", // "student123" hashed
+      password: "$2b$10$y8N9w5iZKI6e7MW7ota.UusmJaSfLFmU1wu.M1iNM4Ri5p66A2o3K", // "student123" hashed
       fullName: "John Student",
       role: "student",
       bio: "Computer Science Student",
@@ -630,5 +630,3 @@ export class MemStorage implements IStorage {
     // Implementation of resyncAllBlogCommentCounts method
   }
 }
-
-export const storage = new MemStorage();

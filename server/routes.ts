@@ -1,6 +1,6 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
-import { createDatabaseStorage } from "./database-storage";
+import type { IStorage } from "./storage";
 import { 
   insertUserSchema, insertBlogSchema, insertCommentSchema,
   insertAnnouncementSchema, insertQnaThreadSchema, insertQnaReplySchema,
@@ -19,8 +19,6 @@ interface AuthenticatedRequest extends Request {
   userId?: number;
   user?: any;
 }
-
-const storage = createDatabaseStorage();
 
 // Middleware to verify JWT token
 const authenticateToken = async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
@@ -52,7 +50,7 @@ const requireAdmin = (req: AuthenticatedRequest, res: Response, next: NextFuncti
   next();
 };
 
-export async function registerRoutes(app: Express): Promise<Server> {
+export async function registerRoutes(app: Express, storage: IStorage): Promise<Server> {
   
   // Auth routes
   app.post("/api/auth/register", async (req, res) => {

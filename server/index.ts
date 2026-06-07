@@ -2,7 +2,7 @@ import "dotenv/config";
 import express, { type Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
-import { createDatabaseStorage } from "./database-storage";
+import type { IStorage } from "./storage";
 
 const app = express();
 app.use(express.json());
@@ -39,10 +39,16 @@ app.use((req, res, next) => {
 });
 
 (async () => {
-  const server = await registerRoutes(app);
+  const storage: IStorage = process.env.DATABASE_URL
+    ? (await import("./database-storage")).createDatabaseStorage()
+    : new (await import("./storage")).MemStorage();
+
+  const storageType = process.env.DATABASE_URL ? "database" : "in-memory";
+  log(`Using ${storageType} storage.`);
+
+  const server = await registerRoutes(app, storage);
 
   // Resync blog comment counts at startup (one-time fix)
-  const storage = createDatabaseStorage();
   await storage.resyncAllBlogCommentCounts();
   log('Resynced blog comments_count for all blogs.');
 

@@ -58,6 +58,7 @@ export default function SkillShare() {
   
   console.log('SkillShare - Using local chat state, showChats:', showChats);
   const [refreshKey, setRefreshKey] = useState(0);
+  const safeAcceptedConnections = Array.isArray(acceptedConnections) ? acceptedConnections : [];
 
   const { data: skills, isLoading } = useQuery({
     queryKey: ["/api/skills"],
@@ -85,27 +86,32 @@ export default function SkillShare() {
     fetch("/api/connection-requests/accepted", {
       headers: { Authorization: `Bearer ${localStorage.getItem("token")}` },
     })
-      .then((res) => res.json())
-      .then((data) => {
-        console.log('Skill Share - Accepted connections:', data);
-        setAcceptedConnections(data);
-      });
+      .then(async (res) => {
+        const data = await res.json();
+        if (!res.ok) {
+          console.error("Error fetching accepted connections:", data);
+          setAcceptedConnections([]);
+          return;
+        }
+        setAcceptedConnections(Array.isArray(data) ? data : []);
+      })
+      .catch(() => setAcceptedConnections([]));
   }, [user, refreshKey]);
 
   // Open chat modal if /chat/:id route
   useEffect(() => {
-    if (params.id && acceptedConnections.length > 0) {
-      const conn = acceptedConnections.find((c: any) => String(c.id) === params.id);
+    if (params.id && safeAcceptedConnections.length > 0) {
+      const conn = safeAcceptedConnections.find((c: any) => String(c.id) === params.id);
       if (conn) {
         setShowChats(true);
         setSelectedConnection(conn);
       }
     }
-  }, [params.id, acceptedConnections, setShowChats]);
+  }, [params.id, safeAcceptedConnections, setShowChats]);
 
   // Fetch sidebar user info for all accepted connections
   useEffect(() => {
-    const idsToFetch = acceptedConnections
+    const idsToFetch = safeAcceptedConnections
       .map((conn: any) => (conn.senderId === user?.id ? conn.receiverId : conn.senderId))
       .filter((id: number, idx: number, arr: number[]) => arr.indexOf(id) === idx && !sidebarUserInfo[id]);
     if (idsToFetch.length === 0) return;
@@ -116,7 +122,7 @@ export default function SkillShare() {
           setSidebarUserInfo((prev) => ({ ...prev, [id]: { fullName: data.username || data.fullName || "User", avatar: data.avatar } }));
         });
     });
-  }, [acceptedConnections, user]);
+  }, [safeAcceptedConnections, user, sidebarUserInfo]);
 
   // Debug: Monitor showChats changes
   useEffect(() => {
@@ -286,7 +292,7 @@ export default function SkillShare() {
 
           {/* Connection List */}
           <div className="flex-1 overflow-y-auto p-4">
-            {acceptedConnections.length === 0 ? (
+            {safeAcceptedConnections.length === 0 ? (
               <div className="text-center text-gray-500 py-8">
                 <MessageCircle className="h-12 w-12 mx-auto mb-4 opacity-50" />
                 <p className="text-lg font-semibold">No chat connections yet</p>
@@ -295,7 +301,7 @@ export default function SkillShare() {
             ) : (
               <div className="space-y-2">
                 <h3 className="text-lg font-bold text-gray-900 dark:text-gray-100 mb-4">Connections</h3>
-                {acceptedConnections.map((conn: any) => {
+                {safeAcceptedConnections.map((conn: any) => {
                   const otherUserId = conn.senderId === user?.id ? conn.receiverId : conn.senderId;
                   const otherUser = sidebarUserInfo[otherUserId] || {};
                   return (
@@ -574,7 +580,6 @@ export default function SkillShare() {
             {filteredSkills.map((skill: any) => {
               const isOwner = user?.id && skill.author && user.id === skill.author.id;
               const alreadySent = sentRequests && sentRequests.includes(skill.id);
-              const safeAcceptedConnections = Array.isArray(acceptedConnections) ? acceptedConnections : [];
               const acceptedConn = safeAcceptedConnections.find((c: any) => (c.skillId === skill.id && (c.senderId === user?.id || c.receiverId === user?.id)));
               return (
                 <Card key={skill.id} className="hover:shadow-lg transition-shadow flex flex-col h-full">
