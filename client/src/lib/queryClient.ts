@@ -1,7 +1,26 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
+import { toast } from "@/hooks/use-toast";
 
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
+    // If the token is invalid or expired, clear it and show a friendly toast
+    if (res.status === 401 || res.status === 403) {
+      try {
+        localStorage.removeItem("token");
+      } catch (e) {
+        // ignore
+      }
+
+      try {
+        toast({
+          title: "Session expired",
+          description: "Please sign in again to continue.",
+        });
+      } catch (e) {
+        // ignore if toast fails
+      }
+    }
+
     const text = (await res.text()) || res.statusText;
     throw new Error(`${res.status}: ${text}`);
   }
@@ -21,6 +40,11 @@ export async function apiRequest(
   
   if (token) {
     headers["Authorization"] = `Bearer ${token}`;
+  }
+
+  // Also send a duplicate header to survive proxies that strip Authorization
+  if (token) {
+    headers["x-access-token"] = token;
   }
 
   const res = await fetch(url, {
@@ -45,6 +69,7 @@ export const getQueryFn: <T>(options: {
     
     if (token) {
       headers["Authorization"] = `Bearer ${token}`;
+      headers["x-access-token"] = token;
     }
 
     const res = await fetch(queryKey.join("/") as string, {

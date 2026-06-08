@@ -21,25 +21,43 @@ interface AuthenticatedRequest extends Request {
 }
 
 // Middleware to verify JWT token
-const authenticateToken = async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
+const authenticateToken = (storageRef?: IStorage) => {
+  // return middleware that closes over the provided storage reference
+  return async (req: AuthenticatedRequest, res: Response, next: NextFunction) => {
+    // Accept token from Authorization header, x-access-token header, or cookie
+    const authHeader = req.headers['authorization'];
+    const headerToken = authHeader && typeof authHeader === 'string' ? authHeader.split(' ')[1] : undefined;
+    const altToken = req.headers['x-access-token'] as string | undefined;
+    const cookieToken = (req as any).cookies ? (req as any).cookies['token'] : undefined;
 
-  if (!token) {
-    return res.status(401).json({ message: 'Access token required' });
-  }
+    const token = headerToken || altToken || cookieToken;
 
-  try {
-    const decoded = jwt.verify(token, JWT_SECRET) as any;
-    console.log('Decoded token:', decoded); // Debug log
-    req.userId = decoded.userId;
-    console.log('Set userId:', req.userId); // Debug log
-    req.user = await storage.getUser(decoded.userId);
-    next();
-  } catch (error) {
-    console.log('JWT verification error:', error); // Debug log
-    return res.status(403).json({ message: 'Invalid token' });
-  }
+    if (!token) {
+      console.log('No auth token provided. Headers:', {
+        authorization: req.headers['authorization'],
+        'x-access-token': req.headers['x-access-token'],
+      });
+      return res.status(401).json({ message: 'Access token required' });
+    }
+
+    try {
+      const decoded = jwt.verify(token, JWT_SECRET) as any;
+      console.log('Decoded token:', decoded); // Debug log
+      req.userId = decoded.userId;
+      console.log('Set userId:', req.userId); // Debug log
+      // use provided storageRef or try to read storage from closure via fallback
+      const store = storageRef as IStorage | undefined;
+      if (!store) {
+        console.log('No storage available in authenticateToken middleware');
+        return res.status(500).json({ message: 'Server configuration error' });
+      }
+      req.user = await store.getUser(decoded.userId);
+      next();
+    } catch (error) {
+      console.log('JWT verification error:', error); // Debug log
+      return res.status(403).json({ message: 'Invalid token' });
+    }
+  };
 };
 
 // Middleware to check admin role
@@ -73,10 +91,17 @@ export async function registerRoutes(app: Express, storage: IStorage): Promise<S
 
       // Generate JWT token
       const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '7d' });
+      // set token cookie as a fallback so requests will include it automatically
+      res.cookie('token', token, {
+        httpOnly: true,
+        sameSite: 'lax',
+        secure: process.env.NODE_ENV === 'production',
+        maxAge: 7 * 24 * 60 * 60 * 1000,
+      });
 
-      res.json({ 
+      res.json({
         user: { ...user, password: undefined },
-        token 
+        token,
       });
     } catch (error: any) {
       res.status(400).json({ message: error.message });
@@ -98,17 +123,24 @@ export async function registerRoutes(app: Express, storage: IStorage): Promise<S
       }
 
       const token = jwt.sign({ userId: user.id }, JWT_SECRET, { expiresIn: '7d' });
+        // set token cookie as a fallback so requests will include it automatically
+        res.cookie('token', token, {
+          httpOnly: true,
+          sameSite: 'lax',
+          secure: process.env.NODE_ENV === 'production',
+          maxAge: 7 * 24 * 60 * 60 * 1000,
+        });
 
-      res.json({ 
-        user: { ...user, password: undefined },
-        token 
-      });
+        res.json({
+          user: { ...user, password: undefined },
+          token,
+        });
     } catch (error: any) {
       res.status(400).json({ message: error.message });
     }
   });
 
-  app.get("/api/auth/me", authenticateToken, async (req: AuthenticatedRequest, res) => {
+  app.get("/api/auth/me", authenticateToken(storage), async (req: AuthenticatedRequest, res) => {
     res.json({ ...req.user, password: undefined });
   });
 
@@ -162,7 +194,7 @@ export async function registerRoutes(app: Express, storage: IStorage): Promise<S
     }
   });
 
-  app.post("/api/blogs", authenticateToken, async (req: AuthenticatedRequest, res) => {
+  app.post("/api/blogs", authenticateToken(storage), async (req: AuthenticatedRequest, res) => {
     try {
       console.log('Request body:', req.body); // Debug log
       const blogData = insertBlogSchema.parse(req.body);
@@ -183,7 +215,7 @@ export async function registerRoutes(app: Express, storage: IStorage): Promise<S
     }
   });
 
-  app.post("/api/blogs/:id/like", authenticateToken, async (req: AuthenticatedRequest, res) => {
+  app.post("/api/blogs/:id/like", authenticateToken(storage), async (req: AuthenticatedRequest, res) => {
     try {
       const blogId = Number(req.params.id);
       const isLiked = await storage.isBlogLiked(blogId, req.userId!);
@@ -227,7 +259,7 @@ export async function registerRoutes(app: Express, storage: IStorage): Promise<S
     }
   });
 
-  app.post("/api/blogs/:id/comments", authenticateToken, async (req: AuthenticatedRequest, res) => {
+  app.post("/api/blogs/:id/comments", authenticateToken(storage), async (req: AuthenticatedRequest, res) => {
     try {
       console.log('Incoming comment body:', req.body); // Debug log
       const { content } = req.body;
@@ -270,7 +302,7 @@ export async function registerRoutes(app: Express, storage: IStorage): Promise<S
     }
   });
 
-  app.post("/api/announcements", authenticateToken, requireAdmin, async (req: AuthenticatedRequest, res) => {
+  app.post("/api/announcements", authenticateToken(storage), requireAdmin, async (req: AuthenticatedRequest, res) => {
     try {
       // Convert eventDate string to Date if present
       if (req.body.eventDate) {
@@ -317,7 +349,7 @@ export async function registerRoutes(app: Express, storage: IStorage): Promise<S
     }
   });
 
-  app.post("/api/qna", authenticateToken, async (req: AuthenticatedRequest, res) => {
+  app.post("/api/qna", authenticateToken(storage), async (req: AuthenticatedRequest, res) => {
     try {
       const threadData = insertQnaThreadSchema.parse(req.body);
       const thread = await storage.createQnaThread({
@@ -355,7 +387,7 @@ export async function registerRoutes(app: Express, storage: IStorage): Promise<S
     }
   });
 
-  app.post("/api/qna/:id/replies", authenticateToken, async (req: AuthenticatedRequest, res) => {
+  app.post("/api/qna/:id/replies", authenticateToken(storage), async (req: AuthenticatedRequest, res) => {
     try {
       const replyData = insertQnaReplySchema.parse(req.body);
       const reply = await storage.createQnaReply({
@@ -395,7 +427,7 @@ export async function registerRoutes(app: Express, storage: IStorage): Promise<S
     }
   });
 
-  app.post("/api/skills", authenticateToken, async (req: AuthenticatedRequest, res) => {
+  app.post("/api/skills", authenticateToken(storage), async (req: AuthenticatedRequest, res) => {
     try {
       const skillData = insertSkillSchema.parse(req.body);
       const skill = await storage.createSkill({
@@ -441,7 +473,7 @@ export async function registerRoutes(app: Express, storage: IStorage): Promise<S
     }
   });
 
-  app.post("/api/mental-health", authenticateToken, async (req: AuthenticatedRequest, res) => {
+  app.post("/api/mental-health", authenticateToken(storage), async (req: AuthenticatedRequest, res) => {
     try {
       const postData = insertMentalHealthPostSchema.parse(req.body);
       const post = await storage.createMentalHealthPost({
@@ -487,7 +519,7 @@ export async function registerRoutes(app: Express, storage: IStorage): Promise<S
     }
   });
 
-  app.post("/api/opportunities", authenticateToken, async (req: AuthenticatedRequest, res) => {
+  app.post("/api/opportunities", authenticateToken(storage), async (req: AuthenticatedRequest, res) => {
     try {
       // Convert deadline to Date if present
       if (req.body.deadline) {
@@ -547,7 +579,7 @@ export async function registerRoutes(app: Express, storage: IStorage): Promise<S
     }
   });
 
-  app.post("/api/reviews", authenticateToken, async (req: AuthenticatedRequest, res) => {
+  app.post("/api/reviews", authenticateToken(storage), async (req: AuthenticatedRequest, res) => {
     try {
       const reviewData = insertReviewSchema.parse(req.body);
       const review = await storage.createReview({
@@ -566,7 +598,7 @@ export async function registerRoutes(app: Express, storage: IStorage): Promise<S
   });
 
   // Complaints routes
-  app.get("/api/complaints", authenticateToken, async (req, res) => {
+  app.get("/api/complaints", authenticateToken(storage), async (req, res) => {
     try {
       const complaints = await storage.getComplaints();
       
@@ -593,7 +625,7 @@ export async function registerRoutes(app: Express, storage: IStorage): Promise<S
     }
   });
 
-  app.post("/api/complaints", authenticateToken, async (req: AuthenticatedRequest, res) => {
+  app.post("/api/complaints", authenticateToken(storage), async (req: AuthenticatedRequest, res) => {
     try {
       const userId = req.userId!;
       console.log('Creating complaint for user:', userId);
@@ -617,7 +649,7 @@ export async function registerRoutes(app: Express, storage: IStorage): Promise<S
   });
 
   // Get user's own complaints (including anonymous ones)
-  app.get("/api/complaints/my", authenticateToken, async (req: AuthenticatedRequest, res) => {
+  app.get("/api/complaints/my", authenticateToken(storage), async (req: AuthenticatedRequest, res) => {
     try {
       console.log('Fetching complaints for user:', req.userId);
       const complaints = await storage.getComplaintsByUser(req.userId!);
@@ -648,7 +680,7 @@ export async function registerRoutes(app: Express, storage: IStorage): Promise<S
     }
   });
 
-  app.put("/api/complaints/:id/status", authenticateToken, requireAdmin, async (req, res) => {
+  app.put("/api/complaints/:id/status", authenticateToken(storage), requireAdmin, async (req, res) => {
     try {
       const { status } = req.body;
       const updated = await storage.updateComplaintStatus(Number(req.params.id), status);
@@ -681,7 +713,7 @@ export async function registerRoutes(app: Express, storage: IStorage): Promise<S
     }
   });
 
-  app.put("/api/users/:id", authenticateToken, async (req: AuthenticatedRequest, res) => {
+  app.put("/api/users/:id", authenticateToken(storage), async (req: AuthenticatedRequest, res) => {
     try {
       const userId = Number(req.params.id);
       
@@ -725,7 +757,7 @@ export async function registerRoutes(app: Express, storage: IStorage): Promise<S
     }
   });
 
-  app.delete("/api/blogs/:id", authenticateToken, requireAdmin, async (req, res) => {
+  app.delete("/api/blogs/:id", authenticateToken(storage), requireAdmin, async (req, res) => {
     try {
       const deleted = await storage.deleteBlog(Number(req.params.id));
       if (!deleted) {
@@ -740,7 +772,7 @@ export async function registerRoutes(app: Express, storage: IStorage): Promise<S
   // --- Connection Requests & Notifications ---
 
   // Send a connection request
-  app.post("/api/connection-requests", authenticateToken, async (req: AuthenticatedRequest, res) => {
+  app.post("/api/connection-requests", authenticateToken(storage), async (req: AuthenticatedRequest, res) => {
     try {
       const { receiverId, skillId } = req.body;
       if (!receiverId || !skillId) return res.status(400).json({ message: "receiverId and skillId required" });
@@ -762,7 +794,7 @@ export async function registerRoutes(app: Express, storage: IStorage): Promise<S
   });
 
   // Accept or decline a connection request
-  app.post("/api/connection-requests/:id/respond", authenticateToken, async (req: AuthenticatedRequest, res) => {
+  app.post("/api/connection-requests/:id/respond", authenticateToken(storage), async (req: AuthenticatedRequest, res) => {
     try {
       const requestId = Number(req.params.id);
       const { action } = req.body; // 'accept' or 'decline'
@@ -787,7 +819,7 @@ export async function registerRoutes(app: Express, storage: IStorage): Promise<S
   });
 
   // Get notifications for the logged-in user
-  app.get("/api/notifications", authenticateToken, async (req: AuthenticatedRequest, res) => {
+  app.get("/api/notifications", authenticateToken(storage), async (req: AuthenticatedRequest, res) => {
     try {
       const notifications = await storage.getNotificationsByUser(req.userId!);
       res.json(notifications);
@@ -797,7 +829,7 @@ export async function registerRoutes(app: Express, storage: IStorage): Promise<S
   });
 
   // Mark a notification as read
-  app.post("/api/notifications/:id/read", authenticateToken, async (req: AuthenticatedRequest, res) => {
+  app.post("/api/notifications/:id/read", authenticateToken(storage), async (req: AuthenticatedRequest, res) => {
     try {
       const notifId = Number(req.params.id);
       await storage.markNotificationRead(notifId);
@@ -808,7 +840,7 @@ export async function registerRoutes(app: Express, storage: IStorage): Promise<S
   });
 
   // --- Chat Messages ---
-  app.get("/api/messages/:connectionRequestId", authenticateToken, async (req: AuthenticatedRequest, res) => {
+  app.get("/api/messages/:connectionRequestId", authenticateToken(storage), async (req: AuthenticatedRequest, res) => {
     try {
       const connectionRequestId = Number(req.params.connectionRequestId);
       const reqObj = (await storage.getConnectionRequestsByReceiver(req.userId!)).find(r => r.id === connectionRequestId)
@@ -821,7 +853,7 @@ export async function registerRoutes(app: Express, storage: IStorage): Promise<S
     }
   });
 
-  app.post("/api/messages/:connectionRequestId", authenticateToken, async (req: AuthenticatedRequest, res) => {
+  app.post("/api/messages/:connectionRequestId", authenticateToken(storage), async (req: AuthenticatedRequest, res) => {
     try {
       const connectionRequestId = Number(req.params.connectionRequestId);
       const { content } = req.body;
@@ -843,7 +875,7 @@ export async function registerRoutes(app: Express, storage: IStorage): Promise<S
   });
 
   // --- Get accepted connections for chat ---
-  app.get("/api/connection-requests/accepted", authenticateToken, async (req: AuthenticatedRequest, res) => {
+  app.get("/api/connection-requests/accepted", authenticateToken(storage), async (req: AuthenticatedRequest, res) => {
     try {
       const sent = await storage.getConnectionRequestsBySender(req.userId!);
       const received = await storage.getConnectionRequestsByReceiver(req.userId!);
