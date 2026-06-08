@@ -17,3 +17,4 @@ vite.config.ts.*
 
 # Optional: server public files (if you want to ignore them)
 server/public
+EXAM_README.md
